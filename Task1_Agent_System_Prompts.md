@@ -639,11 +639,4 @@ class JudgeResultV2(BaseModel):
 
 ---
 
-## Prompt版本管理
 
-| Agent | Version | 更新日期 | 更新内容 |
-|------|---------|---------|---------|
-| INGESTION | v2.0 | 2026-04 | 重构：evidence_strength枚举、initial_score映射、0.48上限 |
-| BATTLEFIELD | v2.0 | 2026-04 | 保持稳定，无需重构 |
-| XRAG | v2.0 | 2026-04 | 重构：动态异常检测阈值、去掉固定数值 |
-| JUDGE | v2.2.0 | 2026-04 | 重构：完整判定规则、stuck_recovered分支、溢出截断 |
