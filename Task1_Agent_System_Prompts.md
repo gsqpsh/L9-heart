@@ -515,12 +515,12 @@ if diff_count < 5:
 | stuck_no_recovery | 未响应或放弃 | 0.0 |
 
 ### Step 2: base_score计算
-```
+
 base_score = Σ(interaction_score * binding_weight) / Σ(binding_weight)
 
-# 如果某interaction无binding_weight，使用默认权重0.5
+如果某interaction无binding_weight，使用默认权重0.5
 default_binding_weight = 0.5
-```
+
 
 ### Step 3: time_adjustment（避免负分风险）
 | resolution_speed | TTR范围 | time_adjustment | 说明 |
@@ -532,9 +532,8 @@ default_binding_weight = 0.5
 | stuck_no_recovery | 未解决 | -0.30 | 完全失败 |
 
 ### Step 4: final_score计算
-```
+
 final_score = clamp(base_score + time_adjustment, 0.0, 1.0)
-```
 
 ## reranker_payload压缩规则（含溢出处理）
 
@@ -545,14 +544,13 @@ final_score = clamp(base_score + time_adjustment, 0.0, 1.0)
 4. 置信度
 
 ### 溢出截断规则
-```python
+  python
 if len(payload) > 150:
     # 截断为最小信息集
     payload = f"{combat_type},{top_atom}:{top_score},置信度{confidence}...[详情见报告]"
     reranker_truncated = True
 else:
     reranker_truncated = False
-```
 
 ### 示例（未截断）
 "Go沙盒战役，候选人成功修复分布式死锁(A0145:0.85)，Redis宕机时实现降级缓存(A0042:0.72)。高光：10秒内识别竞态条件。风险：并发测试停滞45秒。置信度0.88"
@@ -561,7 +559,6 @@ else:
 "Go沙盒，A0145:0.85，置信度0.88...[详情见报告]"
 
 ## combat_confidence计算
-```
 confidence = Σ(score_i * evidence_strength_weight_i) / Σ(evidence_strength_weight_i) * time_factor
 
 # evidence_strength_weight映射
@@ -578,7 +575,6 @@ time_factor = {
     600s-900s: 0.7,
     >900s: 0.5
 }
-```
 
 ## 严禁行为
 - 不要输出role_schema中不存在的能力
@@ -588,7 +584,6 @@ time_factor = {
 - 不要输出空的能力评分（未考核的atom_id应在vector_updates中记录score=0.0）
 
 执行神谕审判。只输出JSON。
-```
 
 ---
 
@@ -641,7 +636,6 @@ class JudgeResultV2(BaseModel):
 
     class Config:
         extra = "forbid"
-```
 
 ---
 
