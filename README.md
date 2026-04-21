@@ -19,7 +19,7 @@
 - **Ingestion Agent**: DNA提取Prompt，强制输出结构化JSON
 - **Battlefield Agent**: 战场渲染Prompt，捏造私有框架/残卷
 - **X-RAG Agent**: 绞肉机防伪Prompt，Debounce触发机制
-- **Oracle Judge Agent**: 谕确权Prompt，强制role_schema约束
+- **Oracle Judge Agent**: 神谕确权Prompt，强制role_schema约束
 
 **强控设计要点**:
 - `temperature=0.05~0.3` 锁定确定性输出
