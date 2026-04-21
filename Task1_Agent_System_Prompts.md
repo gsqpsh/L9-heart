@@ -13,7 +13,7 @@
 
 ---
 
-## 🔧 v2重构说明（修复PRD逻辑漏洞）
+## 🔧 重构说明（修复PRD逻辑漏洞）
 
 | 原漏洞 | 修复方案 |
 |-------|---------|
@@ -43,7 +43,7 @@
 
 ---
 
-# Agent 1: Ingestion Agent (DNA 提取) - v2
+# Agent 1: Ingestion Agent (DNA 提取) 
 
 ```json
 {
@@ -354,11 +354,11 @@
 
 ## 动态阈值计算逻辑
 ```
-# 停滞检测阈值 = 候选人正常编码平均间隔 * 2
+### 停滞检测阈值 = 候选人正常编码平均间隔 * 2
 normal_interval_avg = Σ(diff_interval_i) / diff_count  // 基于历史数据
 stall_threshold = normal_interval_avg * 2
 
-# 如果无历史数据，使用保守初始值
+### 如果无历史数据，使用保守初始值
 if diff_count < 5:
     stall_threshold = 30  // 保守初始值，后续动态调整
 ```
