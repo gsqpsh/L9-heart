@@ -9,19 +9,6 @@
 | **Task 3** | 20% | ✅ 完成 | `Task3_DDL_Refactor.md` |
 | **Task 4** | 30% | ✅ 完成 | `Task4_search_pipeline.py` |
 
----
-
-## 🔧 严格审查后修复清单
-
-| 问题级别 | 修复项 | 文件 | 状态 |
-|---------|-------|------|------|
-| **CRITICAL** | HNSW参数优化 (m=24→m=16) | Task3 | ✅ 已修复 |
-| **CRITICAL** | RPC函数CTE重构避免重复EXISTS | Task3 | ✅ 已修复 |
-| **CRITICAL** | 完整8阶段迁移脚本SQL | Task3 | ✅ 已修复 |
-| **HIGH** | 模型选择指南 | Task1 | ✅ 已修复 |
-| **HIGH** | RETRYING状态添加 | Task2 | ✅ 已修复 |
-| **HIGH** | vector_delta字段添加 | Task2 | ✅ 已修复 |
-
 ## 📦 交付物清单
 
 ### 1. Task 1: Agent System Prompt（权重30%）
