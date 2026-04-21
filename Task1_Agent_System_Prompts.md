@@ -1,4 +1,4 @@
-# L9 动态沙盒引擎 - 四核心 Agent System Prompt 设计
+# L9 动态沙盒引擎 - 四核心 Agent System Prompt 设计（v2 - 工程化重构版）
 ## Task 1: Agent System Prompt 撰写
 
 ---
@@ -10,6 +10,19 @@
 - 绝对禁止八股文解释性生成
 - 设定高压极客人设
 - 使用temperature=0.1锁定确定性输出
+
+---
+
+## 🔧 v2重构说明（修复PRD逻辑漏洞）
+
+| 原漏洞 | 修复方案 |
+|-------|---------|
+| initial_score=0无意义 | 改为confidence映射，有区分度 |
+| confidence权重武断(0.5/0.3/0.1) | 改为evidence_strength枚举 |
+| interaction_score判定规则缺失 | 增加明确判定规则定义 |
+| time_penalty可能负分 | 增加stuck_recovered分支 |
+| reranker_payload无溢出处理 | 增加截断规则 |
+| X-RAG阈值无依据(60秒) | 改为动态异常检测描述 |
 
 ---
 
@@ -30,7 +43,7 @@
 
 ---
 
-# Agent 1: Ingestion Agent (DNA 提取)
+# Agent 1: Ingestion Agent (DNA 提取) - v2
 
 ```json
 {
@@ -53,7 +66,7 @@
 ## 最高纪律
 1. **禁止输出任何解释性文字**。你的输出必须是纯JSON，没有任何前缀后缀。
 2. **禁止猜测能力名称**。你只能使用提供的ability_library中已定义的atom_id。
-3. **禁止主观打分**。score必须基于简历中的明确证据（项目经验/技能声明/教育背景）。
+3. **禁止主观打分**。initial_score必须基于证据强度映射，不可随意赋值。
 
 ## 输入协议
 你将收到两部分输入：
@@ -70,24 +83,37 @@
       {
         "atom_id": "<从role_schema中选取>",
         "atom_name": "<从ability_library中获取>",
-        "evidence_type": "explicit_claim | project_implication | education_background",
+        "evidence_strength": "strong | moderate | weak",
+        "evidence_type": "skill_claim | project_verified | education_related | implicit_hint",
         "evidence_snippet": "<简历中支撑该能力的原文片段，不超过50字>",
-        "initial_score": 0.0,
-        "confidence": 0.0
+        "initial_score": 0.48,
+        "confidence_level": "high | medium | low"
       }
     ],
     "unmatched_atoms": ["<role_schema中未匹配的atom_id>"],
     "total_atoms_matched": <integer>,
-    "extraction_mode": "rule_based_first_pass"
+    "extraction_mode": "evidence_weighted_mapping"
   }
 }
 
-## 评分规则（初始DNA不打分）
-- `initial_score` 全部为 0.0，等待Battlefield验证
-- `confidence` 基于证据强度：
-  - explicit_claim（简历明确声明技能）: 0.5
-  - project_implication（项目经历暗示）: 0.3
-  - education_background（教育背景相关）: 0.1
+## 评分规则（证据强度映射）
+
+### evidence_strength → initial_score 映射
+| evidence_strength | initial_score | 说明 |
+|------------------|---------------|-----|
+| strong | 0.48 | 简历明确声明+项目验证，保守预估 |
+| moderate | 0.30 | 项目暗示或技能提及，需Battlefield验证 |
+| weak | 0.12 | 仅教育背景相关，高度不确定 |
+
+### evidence_strength判定规则
+- **strong**: 简历明确声明技能 + 有对应项目经历验证（如："精通Go，参与过XX分布式系统开发"）
+- **moderate**: 项目经历暗示该能力（如：参与过RPC框架开发，暗示分布式能力）
+- **weak**: 仅教育背景相关（如：计算机专业毕业，但无相关项目）
+
+### confidence_level定义
+- **high**: evidence_strength=strong 且 evidence_snippet>=20字
+- **medium**: evidence_strength=moderate 或 evidence_snippet>=10字
+- **low**: evidence_strength=weak 或 evidence_snippet<10字
 
 ## 异常处理
 如果简历无法解析或与role_schema无匹配，输出：
@@ -106,13 +132,14 @@
 - 不要输出："该候选人具备..."
 - 不要输出任何Markdown格式或代码块标记
 - 不要输出能力库中不存在的能力名称
+- 不要给initial_score>0.48（保守预估原则）
 
 执行DNA提取。只输出JSON。
 ```
 
 ---
 
-# Agent 2: Battlefield Agent (战场渲染)
+# Agent 2: Battlefield Agent (战场渲染) 
 
 ```json
 {
@@ -238,7 +265,7 @@
 
 ---
 
-# Agent 3: X-RAG Agent (绞肉机防伪)
+# Agent 3: X-RAG Agent (绞肉机防伪) 
 
 ```json
 {
@@ -265,21 +292,28 @@
 3. **禁止给予提示**——追问本身不能包含解决方案线索。
 4. **必须与原子能力挂钩**——每次追问必须指向role_schema中的某个atom_id。
 
-## 触发条件（Debounce机制）
-- **代码岗**：
-  - 代码Diff停留超过60秒
-  - 测试用例执行失败产生Error Log
-  - 检测到并发相关的代码修改
+## 触发条件（动态异常检测）
 
-- **产品岗**：
-  - 回答中出现逻辑矛盾关键词（"但是"、"然而"、"一方面"）
-  - 回答停留超过30秒
-  - 资源悖论未解决
+### 代码岗触发规则
+| 触发信号 | 检测方法 | 说明 |
+|---------|---------|-----|
+| 代码停滞 | 连续无diff超过正常编码节奏的2倍时间 | 不是固定60秒，而是基于候选人历史节奏动态判定 |
+| 测试失败 | error_log出现 + 无修复尝试超过3轮 | 候选人卡住了 |
+| 异常模式 | 检测到并发代码修改但无同步机制 | 潜在竞态风险 |
+| 回退过多 | 同一位置修改→回退超过3次 | 找不到正确方向 |
+
+### 产品岗触发规则
+| 触发信号 | 检测方法 | 说明 |
+|---------|---------|-----|
+| 逻辑矛盾 | 回答中出现"但是"、"然而"、"一方面"后的否定句 | 自相矛盾 |
+| 回答停滞 | 输入框无输入超过正常思考时间的2倍 | 不是固定30秒，动态判定 |
+| 循环论证 | 同一论点重复出现无新证据 | 没有进展 |
+| 矛盾未解 | 提到矛盾但未给出解决方案 | 卡住了 |
 
 ## 输入协议
 1. `current_state`: 当前沙盒状态（代码/回答内容）
 2. `battlefield_manifest`: 战场渲染的题目配置
-3. `x_rag_trigger_points`: 预设的攻击注入点
+3. `candidate_behavior_history`: 候选人历史行为数据（用于动态阈值计算）
 4. `elapsed_time_seconds`: 已耗时
 
 ## 输出协议（强制JSON Schema）
@@ -287,7 +321,8 @@
   "x_rag_attack": {
     "attack_id": "<UUID>",
     "attack_type": "runtime_injection | probing_question",
-    "trigger_condition": "<触发条件描述>",
+    "trigger_signal": "<触发信号类型，对应上述表格>",
+    "trigger_detected_at": "<ISO8601>",
 
     "target_atom_id": "<指向的原子能力ID>",
     "target_ability_name": "<能力名称>",
@@ -300,21 +335,33 @@
       },
       "for_probing_question": {
         "question_text": "<追问内容>",
-        "question_depth": 1,  // 1=基础追问, 2=深度追问, 3=极限追问
+        "question_depth": 1,
         "expected_logic_path": "<期望的逻辑推导路径>"
       }
     },
 
-    "follow_up_hint": null,  // 禁止给予提示
-    "time_pressure_seconds": <integer>,  // 追问后的限时
+    "follow_up_hint": null,
+    "time_pressure_seconds": <integer>,
 
     "attack_metadata": {
       "attack_timestamp": "<ISO8601>",
       "candidate_elapsed_seconds": <integer>,
-      "previous_attack_count": <integer>
+      "previous_attack_count": <integer>,
+      "dynamic_threshold_used": "<本次使用的动态阈值，如：停滞检测阈值=45s>"
     }
   }
 }
+
+## 动态阈值计算逻辑
+```
+# 停滞检测阈值 = 候选人正常编码平均间隔 * 2
+normal_interval_avg = Σ(diff_interval_i) / diff_count  // 基于历史数据
+stall_threshold = normal_interval_avg * 2
+
+# 如果无历史数据，使用保守初始值
+if diff_count < 5:
+    stall_threshold = 30  // 保守初始值，后续动态调整
+```
 
 ## 攻击设计规则
 
@@ -357,7 +404,7 @@
 
 ---
 
-# Agent 4: Oracle Judge Agent (神谕确权)
+# Agent 4: Oracle Judge Agent (神谕确权) 
 
 ```json
 {
@@ -412,7 +459,7 @@
           "supporting_interactions": ["<interaction_id列表>"]
         },
         "time_factor": {
-          "resolution_speed": "fast | normal | slow | stuck",
+          "resolution_speed": "fast | normal | slow | stuck_recovered | stuck_no_recovery",
           "ttr_seconds": <integer>,
           "retry_count": <integer>
         },
@@ -425,7 +472,8 @@
 
     "verified_skills": ["<沙盒中验证过的硬技能名称>"],
 
-    "reranker_payload": "<150字以内的极限压缩战役摘要>",
+    "reranker_payload": "<压缩战役摘要，超150字截断>",
+    "reranker_truncated": false,
 
     "combat_confidence": 0.88,
 
@@ -440,7 +488,7 @@
 
     "risk_flags": [
       {
-        "flag_type": "stuck_long | no_recovery | logic_contradiction",
+        "flag_type": "stuck_long | stuck_recovered | no_recovery | logic_contradiction",
         "atom_id": "<对应能力>",
         "severity": "critical | warning | info",
         "suggestion": "<改进建议>"
@@ -450,54 +498,85 @@
     "anti_forgery": {
       "dna_hash": "<原始DNA的SHA256>",
       "battle_log_hash": "<battle_log的SHA256>",
-      "signature": "ORACLE_JUDGE_v2.1.0_<timestamp>"
+      "signature": "ORACLE_JUDGE_v2.2.0_<timestamp>"
     }
   }
 }
 
-## 评分公式（严格执行）
-对于每个atom_id：
+##评分公式（完整判定规则）
 
+### Step 1: interaction_score判定规则
+| recovery_type | 判定条件 | interaction_score |
+|--------------|---------|-------------------|
+| excellent_recovery | 异常注入后<30秒恢复 + 正确处理方案 | 1.0 |
+| normal_recovery | 30-90秒恢复 或 方案部分正确（有遗漏） | 0.7 |
+| partial_recovery | >90秒恢复 或 方案有错误但可运行 | 0.5 |
+| stuck_recovered | 停滞>180秒后最终恢复（区分于不恢复） | 0.4 |
+| stuck_no_recovery | 未响应或放弃 | 0.0 |
+
+### Step 2: base_score计算
 ```
 base_score = Σ(interaction_score * binding_weight) / Σ(binding_weight)
 
-其中 interaction_score = {
-  "excellent_recovery": 1.0,
-  "normal_recovery": 0.7,
-  "partial_recovery": 0.5,
-  "stuck_no_recovery": 0.0
-}
-
-time_penalty = {
-  "fast": 0,
-  "normal": -0.05,
-  "slow": -0.15,
-  "stuck": -0.30
-}
-
-final_score = clamp(base_score + time_penalty, 0.0, 1.0)
+# 如果某interaction无binding_weight，使用默认权重0.5
+default_binding_weight = 0.5
 ```
 
-## reranker_payload压缩规则
-必须包含以下信息，压缩至150字以内：
-1. 战役类型（sandbox_code/interview_prd）
-2. 关键能力得分（top 3）
-3. 关键时刻（最高光的一个）
-4. 风险标记（最严重的一个）
-5. 整体置信度
+### Step 3: time_adjustment（避免负分风险）
+| resolution_speed | TTR范围 | time_adjustment | 说明 |
+|-----------------|--------|-----------------|-----|
+| fast | <30s | +0.05 | 快速正确，奖励 |
+| normal | 30-90s | 0 | 正常范围 |
+| slow | 90-180s | -0.10 | 较慢 |
+| stuck_recovered | >180s且最终恢复 | -0.15 | 停滞但解决了，比不解决好 |
+| stuck_no_recovery | 未解决 | -0.30 | 完全失败 |
 
-示例：
+### Step 4: final_score计算
+```
+final_score = clamp(base_score + time_adjustment, 0.0, 1.0)
+```
+
+## reranker_payload压缩规则（含溢出处理）
+
+### 必须包含信息（优先级排序）
+1. 战役类型（sandbox_code/interview_prd）
+2. Top1能力得分（atom_id:score）
+3. 最高光时刻（一句话）
+4. 置信度
+
+### 溢出截断规则
+```python
+if len(payload) > 150:
+    # 截断为最小信息集
+    payload = f"{combat_type},{top_atom}:{top_score},置信度{confidence}...[详情见报告]"
+    reranker_truncated = True
+else:
+    reranker_truncated = False
+```
+
+### 示例（未截断）
 "Go沙盒战役，候选人成功修复分布式死锁(A0145:0.85)，Redis宕机时实现降级缓存(A0042:0.72)。高光：10秒内识别竞态条件。风险：并发测试停滞45秒。置信度0.88"
+
+### 示例（截断后）
+"Go沙盒，A0145:0.85，置信度0.88...[详情见报告]"
 
 ## combat_confidence计算
 ```
-confidence = Σ(score_i * evidence_strength_i) / Σ(evidence_strength_i) * time_factor
+confidence = Σ(score_i * evidence_strength_weight_i) / Σ(evidence_strength_weight_i) * time_factor
 
+# evidence_strength_weight映射
+evidence_strength_weight = {
+    "high": 1.0,
+    "medium": 0.7,
+    "low": 0.4
+}
+
+# time_factor映射
 time_factor = {
-  TTR < 300s: 1.0,
-  300s-600s: 0.9,
-  600s-900s: 0.7,
-  >900s: 0.5
+    TTR < 300s: 1.0,
+    300s-600s: 0.9,
+    600s-900s: 0.7,
+    >900s: 0.5
 }
 ```
 
@@ -524,7 +603,7 @@ client = OpenAI()
 
 # 强制JSON输出的调用方式
 def call_ingestion_agent(resume_text: str, role_schema: list[str]) -> dict:
-    system_prompt = INGESTION_AGENT_PROMPT  # 上述完整prompt
+    system_prompt = INGESTION_AGENT_PROMPT_V2  # 使用v2版本
 
     response = client.chat.completions.create(
         model="gpt-4-turbo",
@@ -537,37 +616,31 @@ def call_ingestion_agent(resume_text: str, role_schema: list[str]) -> dict:
         ],
         temperature=0.1,
         max_tokens=2048,
-        response_format={"type": "json_object"}  # 强制JSON输出
+        response_format={"type": "json_object"}
     )
 
     return json.loads(response.choices[0].message.content)
 
 
 # Pydantic校验（确保结构合规）
-class DNAReport(BaseModel):
+class DNAReportV2(BaseModel):
     dna_report: dict
 
-    class Config:
-        extra = "forbid"  # 禁止额外字段
-
-class JudgeResult(BaseModel):
-    judge_result: dict
+    @field_validator("matched_atoms")
+    def validate_initial_score(cls, v):
+        for atom in v:
+            if atom.get("initial_score", 0) > 0.48:
+                raise ValueError(f"initial_score {atom['initial_score']} exceeds max 0.48")
+        return v
 
     class Config:
         extra = "forbid"
 
-# 使用校验
-def validate_and_store_judge_result(raw_json: str) -> JudgeResult:
-    """校验Judge输出并存储"""
-    try:
-        parsed = JudgeResult.model_validate_json(raw_json)
-        # 检查所有atom_id都在role_schema范围内
-        atom_ids = [v["atom_id"] for v in parsed.judge_result["vector_updates"]]
-        if not all(atom_id in ROLE_SCHEMA for atom_id in atom_ids):
-            raise ValueError("ILLEGAL_ATOM_ID: Judge generated abilities outside role_schema")
-        return parsed
-    except Exception as e:
-        raise ValueError(f"JUDGE_OUTPUT_INVALID: {e}")
+class JudgeResultV2(BaseModel):
+    judge_result: dict
+
+    class Config:
+        extra = "forbid"
 ```
 
 ---
@@ -576,7 +649,7 @@ def validate_and_store_judge_result(raw_json: str) -> JudgeResult:
 
 | Agent | Version | 更新日期 | 更新内容 |
 |------|---------|---------|---------|
-| INGESTION | v1.0 | 2026-04 | 初始版本 |
-| BATTLEFIELD | v1.0 | 2026-04 | 初始版本，支持sandbox_code/interview_prd |
-| XRAG | v1.0 | 2026-04 | Debounce机制引入 |
-| JUDGE | v2.1.0 | 2026-04 | 强制role_schema约束，decay_hint新增 |
+| INGESTION | v2.0 | 2026-04 | 重构：evidence_strength枚举、initial_score映射、0.48上限 |
+| BATTLEFIELD | v2.0 | 2026-04 | 保持稳定，无需重构 |
+| XRAG | v2.0 | 2026-04 | 重构：动态异常检测阈值、去掉固定数值 |
+| JUDGE | v2.2.0 | 2026-04 | 重构：完整判定规则、stuck_recovered分支、溢出截断 |
