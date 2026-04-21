@@ -176,9 +176,6 @@ RRF(d) = Σ weight_i / (k + rank_i)
 ## 🚀 执行命令
 
 ```bash
-# 查看交付物
-cd C:/Users/XDX/L9_architect_exam
-ls -la
 
 # 运行性能测试（Python环境）
 python Task4_search_pipeline.py
