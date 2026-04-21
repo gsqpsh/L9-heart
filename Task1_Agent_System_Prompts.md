@@ -15,12 +15,12 @@
 
 ## 模型选择指南
 
-| Agent | 推荐模型 | 理由 |
-|------|---------|-----|
-| **INGESTION** | Claude-3-Haiku / GPT-4-turbo-mini | 结构化提取，低延迟优先 |
-| **BATTLEFIELD** | Claude-3-Opus / GPT-4-turbo | 复杂框架捏造，需深度推理 |
-| **XRAG** | Claude-3-Sonnet / GPT-4-turbo | 实时对抗，需平衡速度和质量 |
-| **JUDGE** | Claude-3-Opus / GPT-4-turbo | 精确评分，需最强推理能力 |
+| Agent | 特点 |
+|------|-----|
+| **INGESTION** | 结构化提取，低延迟优先 |
+| **BATTLEFIELD** | 复杂框架捏造，需深度推理 |
+| **XRAG** | 实时对抗，需平衡速度和质量 |
+| **JUDGE** | 精确评分，需最强推理能力 |
 
 **Token预算控制**：
 - INGESTION: max_tokens=2048
